@@ -1,0 +1,501 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitoring PM2.5 Indonesia</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f1f5f9;color:#172033}
+header{background:#123b5d;color:white;padding:25px;text-align:center}
+main{max-width:1100px;margin:22px auto;padding:0 14px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.card{background:white;padding:20px;border-radius:14px;box-shadow:0 3px 12px #0000000c;min-width:0}
+.wide{grid-column:1/-1}
+h2{font-size:19px;margin-top:0}
+label{display:block;margin:12px 0 6px;font-weight:bold}
+input,button{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}
+button{background:#1261a0;color:white;cursor:pointer;margin-top:10px;border:0;font-weight:bold}
+button.alt{background:#e2e8f0;color:#172033}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.metric{background:#f8fafc;padding:12px;border-radius:9px;overflow-wrap:anywhere}
+.metric strong{display:block;font-size:23px;margin-top:8px}
+.result{padding:16px;background:#f1f5f9;border-radius:10px;margin-top:14px}
+.big{font-size:30px;font-weight:bold;margin:8px 0}
+.muted{font-size:13px;color:#64748b;line-height:1.6}
+canvas{width:100%;height:300px;display:block}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:10px 7px;border-bottom:1px solid #e2e8f0}
+th{background:#f8fafc}
+@media(max-width:650px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}.metrics{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<h1>Monitoring Kualitas Udara PM2.5</h1>
+<p>Pengukuran, grafik, klasifikasi, dan peluang empiris</p>
+</header>
+<main>
+<div class="grid">
+<section class="card">
+<h2>1. Input Pengukuran</h2>
+<label for="lokasi">Lokasi</label>
+<input id="lokasi" placeholder="Contoh: Semarang">
+<label for="waktu">Tanggal dan waktu</label>
+<input id="waktu" type="datetime-local">
+<label for="pm">Konsentrasi PM2.5 (µg/m³)</label>
+<input id="pm" type="number" min="0" step="0.1" placeholder="Contoh: 32.5">
+<button id="tambah">Hitung dan Simpan</button>
+<div class="result" id="hasil" aria-live="polite">Masukkan nilai pengukuran.</div>
+</section>
+
+<section class="card">
+<h2>2. Ringkasan dan Peluang</h2>
+<div class="metrics">
+<div class="metric">Jumlah data<strong id="jumlah">0</strong></div>
+<div class="metric">Rata-rata<strong id="rata">—</strong></div>
+<div class="metric">Maksimum<strong id="maks">—</strong></div>
+</div>
+<div class="result">
+Peluang empiris PM2.5 di atas 55 µg/m³
+<div class="big" id="peluang">—</div>
+<p id="detail" class="muted">Belum ada data.</p>
+</div>
+<p class="muted">Peluang ini adalah frekuensi historis, bukan jaminan hasil pengukuran berikutnya.</p>
+</section>
+
+<section class="card wide">
+<h2>3. Grafik Konsentrasi PM2.5</h2>
+<canvas id="grafik" aria-label="Grafik riwayat konsentrasi PM2.5"></canvas>
+<p class="muted">Garis merah menunjukkan 55 µg/m³ sebagai referensi baku mutu rata-rata 24 jam. Pembacaan sesaat tidak sama dengan rata-rata 24 jam.</p>
+</section>
+
+<section class="card wide">
+<h2>4. Grafik Distribusi Kategori</h2>
+<canvas id="distribusi" aria-label="Grafik distribusi kategori PM2.5"></canvas>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Kategori</th><th>Rentang µg/m³</th><th>Jumlah</th><th>Peluang</th></tr></thead>
+<tbody id="kategoriTable"></tbody>
+</table>
+</div>
+</section>
+
+
+<section class="card wide">
+  <h2>Kurva Distribusi Normal PM2.5</h2>
+
+  <div class="metrics">
+    <div class="metric">
+      Rata-rata (μ)
+      <strong id="normalMean">—</strong>
+    </div>
+    <div class="metric">
+      Simpangan baku (σ)
+      <strong id="normalSD">—</strong>
+    </div>
+    <div class="metric">
+      Peluang PM2.5 > 55
+      <strong id="normalTail">—</strong>
+    </div>
+  </div>
+
+  <canvas id="normalChart"
+          style="width:100%;height:320px;display:block">
+  </canvas>
+
+  <p id="normalInfo">Menunggu data pengukuran...</p>
+</section>
+
+<section class="card wide">
+<h2>5. Riwayat Pengukuran</h2>
+<button id="contoh" class="alt">Muat Contoh Data</button>
+<button id="ekspor" class="alt">Ekspor CSV</button>
+<button id="hapus" style="background:#b42318">Hapus Semua Data</button>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Waktu</th><th>Lokasi</th><th>PM2.5</th><th>Kategori</th><th>Aksi</th></tr></thead>
+<tbody id="riwayat"></tbody>
+</table>
+</div>
+<p class="muted">Data disimpan sementara selama halaman dibuka. Ekspor CSV untuk menyimpannya.</p>
+</section>
+</div>
+
+<section class="card" style="margin-top:16px">
+<h2>Metode Perhitungan</h2>
+<p class="muted">
+Kategori mengikuti rentang PM2.5 yang ditampilkan BMKG. Baku mutu nasional menurut PP No. 22 Tahun 2021 adalah 55 µg/m³ untuk rata-rata 24 jam dan 15 µg/m³ untuk rata-rata tahunan.
+</p>
+<p class="muted">
+Peluang empiris = (jumlah data pada kategori atau kejadian tertentu ÷ jumlah seluruh data) × 100%. Kategori konsentrasi ini bukan nilai ISPU resmi yang dihitung melalui konversi indeks.
+</p>
+</section>
+</main>
+
+<script>
+"use strict";
+
+const ambang = 55;
+const kategori = [
+ {nama:"Baik",batas:15.5,min:"0",rentang:"0–15,4",warna:"#16a34a"},
+ {nama:"Sedang",batas:55.5,min:"15.5",rentang:"15,5–55,4",warna:"#2563eb"},
+ {nama:"Tidak Sehat",batas:150.5,min:"55.5",rentang:"55,5–150,4",warna:"#eab308"},
+ {nama:"Sangat Tidak Sehat",batas:250.5,min:"150.5",rentang:"150,5–250,4",warna:"#ea580c"},
+ {nama:"Berbahaya",batas:Infinity,min:"250.5",rentang:">250,4",warna:"#dc2626"}
+];
+let data = [];
+const $ = id => document.getElementById(id);
+const angka = n => n.toLocaleString("id-ID",{maximumFractionDigits:2,minimumFractionDigits:1});
+
+function klasifikasi(v){
+ return kategori.find(k=>v<k.batas).nama;
+}
+function waktuLokal(date){
+ const d=new Date(date);
+ d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
+ return d.toISOString().slice(0,16);
+}
+$("waktu").value=waktuLokal(new Date());
+
+function gambar(id,values,labels,isBars=false){
+ const c=$(id), rect=c.getBoundingClientRect();
+ const dpr=window.devicePixelRatio||1;
+ const w=Math.max(300,rect.width),h=300;
+ c.width=w*dpr;c.height=h*dpr;
+ const ctx=c.getContext("2d");
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+ ctx.clearRect(0,0,w,h);
+ const left=43,right=12,top=22,bottom=52;
+ const pw=w-left-right,ph=h-top-bottom;
+ const maxV=Math.max(1,...values);
+ const ymax=isBars?maxV:Math.max(60,maxV*1.15);
+ const y=v=>top+ph*(1-v/ymax);
+
+ ctx.font="11px Arial";
+ ctx.textAlign="right";
+ for(let i=0;i<=4;i++){
+  const v=ymax*i/4,yy=y(v);
+  ctx.strokeStyle="#e2e8f0";
+  ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(w-right,yy);ctx.stroke();
+  ctx.fillStyle="#64748b";ctx.fillText(angka(v),left-6,yy+4);
+ }
+
+ if(!isBars){
+  ctx.save();ctx.strokeStyle="#dc2626";ctx.setLineDash([5,4]);
+  ctx.beginPath();ctx.moveTo(left,y(ambang));ctx.lineTo(w-right,y(ambang));ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle="#dc2626";ctx.textAlign="left";
+  ctx.fillText("55",left+3,y(ambang)-5);
+ }
+ if(!values.length){
+  ctx.fillStyle="#64748b";ctx.textAlign="center";
+  ctx.fillText("Tambahkan data untuk menampilkan grafik",w/2,h/2);
+  return;
+ }
+
+ if(isBars){
+  const slot=pw/values.length,bar=Math.min(44,slot*.6);
+  values.forEach((v,i)=>{
+   const xx=left+i*slot+(slot-bar)/2,yy=y(v);
+   ctx.fillStyle=kategori[i].warna;
+   ctx.fillRect(xx,yy,bar,top+ph-yy);
+   ctx.fillStyle="#172033";ctx.textAlign="center";
+   ctx.fillText(String(v),xx+bar/2,yy-5);
+   const names=["Baik","Sedang","Tidak","Sangat","Bahaya"];
+   ctx.fillStyle="#475569";ctx.fillText(names[i],xx+bar/2,h-28);
+  });
+ } else {
+  const x=i=>values.length===1?left+pw/2:left+pw*i/(values.length-1);
+  ctx.strokeStyle="#1261a0";ctx.lineWidth=2;ctx.beginPath();
+  values.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));
+  ctx.stroke();
+  values.forEach((v,i)=>{
+   ctx.fillStyle=kategori.find(k=>v<k.batas).warna;
+   ctx.beginPath();ctx.arc(x(i),y(v),4,0,Math.PI*2);ctx.fill();
+  });
+  ctx.fillStyle="#64748b";ctx.textAlign="center";
+  const count=Math.min(5,labels.length);
+  for(let j=0;j<count;j++){
+   const i=count===1?0:Math.round(j*(labels.length-1)/(count-1));
+   ctx.fillText(labels[i],x(i),h-20);
+  }
+ }
+}
+
+
+function normalCDF(z) {
+  // Aproksimasi fungsi distribusi kumulatif normal standar
+  const x = Math.abs(z);
+  const t = 1 / (1 + 0.2316419 * x);
+  const d = 0.3989422804014327 * Math.exp(-x * x / 2);
+
+  const p = d * t * (
+    0.319381530 +
+    t * (-0.356563782 +
+    t * (1.781477937 +
+    t * (-1.821255978 +
+    t * 1.330274429)))
+  );
+
+  return z >= 0 ? 1 - p : p;
+}
+
+function gambarNormal() {
+  const c = document.getElementById("normalChart");
+  if (!c) return;
+
+  const values = data.map(d => d.nilai);
+  const meanEl = document.getElementById("normalMean");
+  const sdEl = document.getElementById("normalSD");
+  const tailEl = document.getElementById("normalTail");
+  const infoEl = document.getElementById("normalInfo");
+
+  const fmt = n => n.toLocaleString("id-ID", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
+  });
+
+  const rect = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(300, rect.width);
+  const h = 320;
+
+  c.width = w * dpr;
+  c.height = h * dpr;
+
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  if (values.length < 2) {
+    meanEl.textContent = "—";
+    sdEl.textContent = "—";
+    tailEl.textContent = "—";
+    infoEl.textContent =
+      "Masukkan minimal dua pengukuran untuk menghitung simpangan baku.";
+    ctx.fillStyle = "#64748b";
+    ctx.textAlign = "center";
+    ctx.font = "13px Arial";
+    ctx.fillText("Menunggu data pengukuran...", w / 2, h / 2);
+    return;
+  }
+
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+
+  // Simpangan baku sampel
+  const variance = values.reduce(
+    (sum, v) => sum + Math.pow(v - mean, 2), 0
+  ) / (values.length - 1);
+
+  const sd = Math.sqrt(variance);
+
+  meanEl.textContent = fmt(mean);
+  sdEl.textContent = fmt(sd);
+
+  if (sd === 0) {
+    tailEl.textContent = "Tidak terdefinisi";
+    infoEl.textContent =
+      "Semua nilai sama. Simpangan baku nol sehingga kurva normal tidak dapat dibentuk.";
+    return;
+  }
+
+  // Peluang model normal untuk X > 55
+  const z = (55 - mean) / sd;
+  const peluang = 1 - normalCDF(z);
+  tailEl.textContent = (100 * peluang).toLocaleString("id-ID", {
+    maximumFractionDigits: 2
+  }) + "%";
+
+  infoEl.textContent =
+    "Model normal memperkirakan peluang PM2.5 > 55 µg/m³ sebesar " +
+    (100 * peluang).toLocaleString("id-ID", {
+      maximumFractionDigits: 2
+    }) +
+    "%. Ini estimasi berdasarkan asumsi distribusi normal, bukan peluang empiris.";
+
+  const left = 48, right = 16, top = 24, bottom = 48;
+  const pw = w - left - right;
+  const ph = h - top - bottom;
+
+  const xmin = Math.max(0, mean - 4 * sd);
+  const xmax = Math.max(55, mean + 4 * sd, xmin + 1);
+  const pdf = x =>
+    Math.exp(-0.5 * Math.pow((x - mean) / sd, 2)) /
+    (sd * Math.sqrt(2 * Math.PI));
+
+  const peak = 1 / (sd * Math.sqrt(2 * Math.PI));
+  const ymax = peak * 1.18;
+  const X = x => left + (x - xmin) / (xmax - xmin) * pw;
+  const Y = y => top + ph * (1 - y / ymax);
+
+  // Grid horizontal
+  ctx.font = "11px Arial";
+  ctx.textAlign = "right";
+
+  for (let i = 0; i <= 4; i++) {
+    const v = ymax * i / 4;
+    const yy = Y(v);
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.beginPath();
+    ctx.moveTo(left, yy);
+    ctx.lineTo(w - right, yy);
+    ctx.stroke();
+    ctx.fillStyle = "#64748b";
+    ctx.fillText(v.toFixed(3), left - 5, yy + 4);
+  }
+
+  // Area kanan: peluang PM2.5 di atas 55
+  const threshold = Math.min(xmax, Math.max(xmin, 55));
+  ctx.beginPath();
+  ctx.moveTo(X(threshold), Y(0));
+
+  for (let i = 0; i <= 200; i++) {
+    const x = threshold + (xmax - threshold) * i / 200;
+    ctx.lineTo(X(x), Y(pdf(x)));
+  }
+
+  ctx.lineTo(X(xmax), Y(0));
+  ctx.closePath();
+  ctx.fillStyle = "rgba(220,38,38,0.25)";
+  ctx.fill();
+
+  // Kurva normal
+  ctx.beginPath();
+  for (let i = 0; i <= 300; i++) {
+    const x = xmin + (xmax - xmin) * i / 300;
+    if (i === 0) ctx.moveTo(X(x), Y(pdf(x)));
+    else ctx.lineTo(X(x), Y(pdf(x)));
+  }
+
+  ctx.strokeStyle = "#1261a0";
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Garis rata-rata
+  ctx.setLineDash([5, 4]);
+  ctx.strokeStyle = "#1261a0";
+  ctx.beginPath();
+  ctx.moveTo(X(mean), top);
+  ctx.lineTo(X(mean), Y(0));
+  ctx.stroke();
+
+  // Garis ambang
+  if (55 >= xmin && 55 <= xmax) {
+    ctx.strokeStyle = "#dc2626";
+    ctx.beginPath();
+    ctx.moveTo(X(55), top);
+    ctx.lineTo(X(55), Y(0));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "#1261a0";
+  ctx.textAlign = "center";
+  ctx.fillText("μ = " + fmt(mean), X(mean), top - 7);
+
+  ctx.fillStyle = "#dc2626";
+  ctx.fillText("55", X(threshold), h - 28);
+
+  ctx.fillStyle = "#64748b";
+  ctx.fillText("Konsentrasi PM2.5 (µg/m³)", w / 2, h - 7);
+}
+
+// Panggil dari fungsi render() yang sudah ada
+
+
+function render(){
+ const n=data.length;
+ const vals=data.map(d=>d.nilai);
+ $("jumlah").textContent=n;
+ $("rata").textContent=n?angka(vals.reduce((a,b)=>a+b,0)/n):"—";
+ $("maks").textContent=n?angka(Math.max(...vals)):"—";
+ const tinggi=vals.filter(v=>v>ambang).length;
+ $("peluang").textContent=n?angka(100*tinggi/n)+"%":"—";
+ $("detail").textContent=n?
+ `${tinggi} dari ${n} pengukuran memiliki nilai di atas 55 µg/m³.`:
+ "Belum ada data untuk menghitung peluang.";
+
+ const tbody=$("kategoriTable");tbody.replaceChildren();
+ kategori.forEach(k=>{
+  const count=data.filter(d=>d.kat===k.nama).length;
+  const tr=document.createElement("tr");
+  [k.nama,k.rentang,count,n?angka(100*count/n)+"%":"—"].forEach((v,i)=>{
+   const td=document.createElement("td");td.textContent=v;
+   if(i===0){td.style.color=k.warna;td.style.fontWeight="bold";}
+   tr.appendChild(td);
+  });
+  tbody.appendChild(tr);
+ });
+
+ const body=$("riwayat");body.replaceChildren();
+ data.forEach((d,i)=>{
+  const tr=document.createElement("tr");
+  [new Date(d.waktu).toLocaleString("id-ID"),d.lokasi,angka(d.nilai),d.kat]
+  .forEach(v=>{const td=document.createElement("td");td.textContent=v;tr.appendChild(td);});
+  const td=document.createElement("td"),btn=document.createElement("button");
+  btn.textContent="Hapus";btn.style.margin="0";btn.style.background="#b42318";
+  btn.onclick=()=>{data.splice(i,1);render();};
+  td.appendChild(btn);tr.appendChild(td);body.appendChild(tr);
+ });
+
+ gambar("grafik",vals,data.map(d=>new Date(d.waktu).toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"})));
+ gambar("distribusi",kategori.map(k=>data.filter(d=>d.kat===k.nama).length),[],true);
+}
+
+function tambahData(lokasi,waktu,nilai){
+ if(!Number.isFinite(nilai)||nilai<0){alert("Masukkan nilai PM2.5 yang valid.");return false;}
+ data.push({lokasi:lokasi||"Tidak diketahui",waktu,nilai,kat:klasifikasi(nilai)});
+ data.sort((a,b)=>new Date(a.waktu)-new Date(b.waktu));
+ return true;
+}
+
+$("tambah").onclick=()=>{
+ if($("pm").value.trim()===""){alert("Masukkan nilai PM2.5.");return;}
+ const v=Number($("pm").value);
+ const date=$("waktu").value?new Date($("waktu").value):new Date();
+ if(Number.isNaN(date.getTime())){alert("Tanggal tidak valid.");return;}
+ if(!tambahData($("lokasi").value.trim(),date.toISOString(),v))return;
+ $("hasil").replaceChildren();
+ const title=document.createElement("strong");
+ title.textContent="Kategori: "+klasifikasi(v);
+ const big=document.createElement("div");big.className="big";big.textContent=angka(v)+" µg/m³";
+ const note=document.createElement("p");note.className="muted";
+ note.textContent=v>ambang?
+ "Nilai di atas 55 µg/m³. Periksa rata-rata 24 jam sebelum menilai kepatuhan baku mutu.":
+ "Nilai tidak melebihi 55 µg/m³. Penilaian baku mutu tetap memerlukan periode rata-rata yang sesuai.";
+ $("hasil").append(title,big,note);
+ $("pm").value="";render();
+};
+
+$("contoh").onclick=()=>{
+ const samples=[8,12,18,24,32,48,61,75,45,28,155,42,18,12,270];
+ const base=Date.now();
+ samples.forEach((v,i)=>tambahData("Contoh",new Date(base-(samples.length-1-i)*3600000).toISOString(),v));
+ render();
+};
+$("hapus").onclick=()=>{
+ if(confirm("Hapus seluruh data?")){data=[];$("hasil").textContent="Data telah dihapus.";render();}
+};
+$("ekspor").onclick=()=>{
+ if(!data.length){alert("Belum ada data.");return;}
+ const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+ const rows=[["Waktu","Lokasi","PM2.5 (ug/m3)","Kategori"],
+ ...data.map(d=>[d.waktu,d.lokasi,d.nilai,d.kat])];
+ const blob=new Blob(["\uFEFF"+rows.map(r=>r.map(q).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});
+ const url=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=url;a.download="pengukuran_pm25.csv";a.click();URL.revokeObjectURL(url);
+};
+window.addEventListener("resize",render);
+render();
+gambar("grafik", vals, data.map(d => d.waktu));
+gambar("distribusi",
+  kategori.map(k => data.filter(d => d.kat === k.nama).length),
+  [], true
+);
+gambarNormal();
+</script>
+</body>
+</html>
